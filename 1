@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#101827">
+<title>ЧекХранитель</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f1f4f8;color:#172033}
+header{background:#101827;color:white;padding:22px 16px}
+header h1{margin:0;font-size:26px}
+header p{margin:8px 0 0;color:#c5d0df}
+main{max-width:850px;margin:auto;padding:16px}
+.card{background:white;padding:18px;border-radius:16px;margin-bottom:16px;box-shadow:0 3px 12px #00000008}
+h2{margin-top:0;font-size:20px}
+input,select,textarea,button{width:100%;padding:12px;margin:7px 0;border-radius:10px;border:1px solid #d5dce6;font-size:16px}
+textarea{min-height:80px;resize:vertical}
+button{background:#1769e0;color:white;border:none;font-weight:bold;cursor:pointer}
+button.secondary{background:#e8edf5;color:#172033}
+button.danger{background:#c83c3c}
+.row{display:flex;gap:10px}
+.row>*{flex:1;min-width:0}
+.receipt{border:1px solid #e2e7ef;padding:14px;border-radius:12px;margin:12px 0}
+.receipt h3{margin:4px 0 10px}
+.receipt img{width:100%;max-height:300px;object-fit:contain;border-radius:10px;background:#eee;margin-top:10px}
+.small{color:#667085;font-size:13px}
+.amount{font-size:21px;font-weight:bold;color:#1769e0}
+#search{background:#fff}
+.empty{text-align:center;padding:25px;color:#667085}
+footer{text-align:center;color:#667085;padding:20px;font-size:13px}
+</style>
+</head>
+<body>
+
+<header>
+<h1>🧾 ЧекХранитель</h1>
+<p>Чеки, покупки и гарантия — всё в одном месте</p>
+</header>
+
+<main>
+
+<section class="card">
+<h2>➕ Добавить чек</h2>
+
+<form id="form">
+<input id="title" placeholder="Название покупки или товара" required>
+
+<div class="row">
+<input id="store" placeholder="Магазин">
+<input id="amount" type="number" step="0.01" placeholder="Сумма ₽">
+</div>
+
+<div class="row">
+<input id="date" type="date" required>
+<select id="category">
+<option>Покупки и товары</option>
+<option>Электроника</option>
+<option>Автомобиль</option>
+<option>Дом и ремонт</option>
+<option>Одежда и обувь</option>
+<option>Гарантия и возврат</option>
+<option>Документы и доказательства</option>
+<option>Другое</option>
+</select>
+</div>
+
+<div class="row">
+<label style="flex:1">
+<div class="small">Гарантия до:</div>
+<input id="warranty" type="date">
+</label>
+</div>
+
+<label>Фото чека</label>
+<input id="photo" type="file" accept="image/*">
+
+<textarea id="note" placeholder="Примечание, номер заказа, информация о гарантии..."></textarea>
+
+<button type="submit">Сохранить чек</button>
+</form>
+</section>
+
+<section class="card">
+<h2>🔎 Мои чеки</h2>
+<input id="search" placeholder="Поиск: товар, магазин, категория...">
+
+<div class="row">
+<button class="secondary" onclick="exportData()">📦 Резервная копия</button>
+<button class="secondary" onclick="document.getElementById('importFile').click()">📥 Восстановить</button>
+</div>
+
+<input type="file" id="importFile" accept=".json" style="display:none">
+
+<button class="secondary" onclick="window.print()">🖨️ Печать / PDF</button>
+
+<div id="list"></div>
+</section>
+
+</main>
+
+<footer>
+ЧекХранитель · Версия 1.0 · Ваши данные хранятся в браузере
+</footer>
+
+<script>
+const KEY = "chekhranitel_v1";
+
+let receipts = [];
+
+try {
+  receipts = JSON.parse(localStorage.getItem(KEY) || "[]");
+} catch(e) {
+  receipts = [];
+}
+
+const form = document.getElementById("form");
+const list = document.getElementById("list");
+const search = document.getElementById("search");
+const photoInput = document.getElementById("photo");
+
+document.getElementById("date").value =
+  new Date().toISOString().slice(0,10);
+
+function saveData(){
+  try {
+    localStorage.setItem(KEY, JSON.stringify(receipts));
+    return true;
+  } catch(e) {
+    alert("Не удалось сохранить данные. Возможно, память браузера заполнена. Сделай резервную копию.");
+    return false;
+  }
+}
+
+function esc(s){
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;",
+    "<":"&lt;",
+    ">":"&gt;",
+    '"':"&quot;",
+    "'":"&#39;"
+  }[c]));
+}
+
+function formatDate(d){
+  if(!d) return "—";
+  const p=d.split("-");
+  return p.length===3 ? p[2]+"."+p[1]+"."+p[0] : d;
+}
+
+function compressImage(file){
+  return new Promise(resolve=>{
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        const canvas=document.createElement("canvas");
+        const max=1200;
+        let w=img.width,h=img.height;
+        if(w>max||h>max){
+          const scale=Math.min(max/w,max/h);
+          w=Math.round(w*scale);
+          h=Math.round(h*scale);
+        }
+        canvas.width=w;
+        canvas.height=h;
+        canvas.getContext("2d").drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL("image/jpeg",0.72));
+      };
+      img.onerror=()=>resolve("");
+      img.src=reader.result;
+    };
+    reader.onerror=()=>resolve("");
+    reader.readAsDataURL(file);
+  });
+}
+
+form.addEventListener("submit",async function(e){
+  e.preventDefault();
+
+  const file=photoInput.files[0];
+  let photo="";
+
+  if(file){
+    photo=await compressImage(file);
+  }
+
+  const item={
+    id:Date.now(),
+    title:document.getElementById("title").value.trim(),
+    store:document.getElementById("store").value.trim(),
+    amount:document.getElementById("amount").value,
+    date:document.getElementById("date").value,
+    category:document.getElementById("category").value,
+    warranty:document.getElementById("warranty").value,
+    note:document.getElementById("note").value.trim(),
+    photo:photo
+  };
+
+  receipts.unshift(item);
+
+  if(saveData()){
+    form.reset();
+    document.getElementById("date").value=
+      new Date().toISOString().slice(0,10);
+    render();
+    alert("Чек сохранён!");
+  }
+});
+
+function render(){
+  const q=search.value.toLowerCase().trim();
+
+  const filtered=receipts.filter(r=>{
+    const text=[
+      r.title,r.store,r.category,r.note,r.date,r.warranty
+    ].join(" ").toLowerCase();
+    return text.includes(q);
+  });
+
+  if(!filtered.length){
+    list.innerHTML='<div class="empty">Чеков пока нет. Добавь первый чек выше.</div>';
+    return;
+  }
+
+  list.innerHTML=filtered.map(r=>`
+    <div class="receipt">
+      <h3>${esc(r.title)}</h3>
+      <div class="amount">${r.amount ? Number(r.amount).toLocaleString("ru-RU")+" ₽" : "Сумма не указана"}</div>
+
+      <p><b>Магазин:</b> ${esc(r.store||"—")}</p>
+      <p><b>Дата покупки:</b> ${formatDate(r.date)}</p>
+      <p><b>Категория:</b> ${esc(r.category)}</p>
+      <p><b>Гарантия до:</b> ${formatDate(r.warranty)}</p>
+
+      ${r.note?`<p><b>Примечание:</b> ${esc(r.note)}</p>`:""}
+
+      ${r.photo?`<img src="${r.photo}" alt="Фото чека">`:""}
+
+      <button class="secondary" onclick="shareReceipt(${r.id})">📤 Поделиться</button>
+      <button class="danger" onclick="deleteReceipt(${r.id})">🗑️ Удалить</button>
+    </div>
+  `).join("");
+}
+
+function deleteReceipt(id){
+  if(!confirm("Удалить этот чек?"))return;
+  receipts=receipts.filter(r=>r.id!==id);
+  saveData();
+  render();
+}
+
+async function shareReceipt(id){
+  const r=receipts.find(x=>x.id===id);
+  if(!r)return;
+
+  const text=[
+    "Чек: "+r.title,
+    "Магазин: "+(r.store||"не указан"),
+    "Сумма: "+(r.amount||"не указана")+" ₽",
+    "Дата: "+formatDate(r.date),
+    "Категория: "+r.category,
+    "Гарантия до: "+formatDate(r.warranty),
+    "Примечание: "+(r.note||"нет")
+  ].join("\n");
+
+  if(navigator.share){
+    try{
+      await navigator.share({title:"ЧекХранитель",text});
+    }catch(e){}
+  }else{
+    try{
+      await navigator.clipboard.writeText(text);
+      alert("Информация скопирована");
+    }catch(e){
+      alert(text);
+    }
+  }
+}
+
+function exportData(){
+  const blob=new Blob(
+    [JSON.stringify(receipts,null,2)],
+    {type:"application/json"}
+  );
+
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="chekhranitel-backup.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById("importFile").addEventListener("change",function(e){
+  const file=e.target.files[0];
+  if(!file)return;
+
+  const reader=new FileReader();
+
+  reader.onload=function(){
+    try{
+      const data=JSON.parse(reader.result);
+      if(!Array.isArray(data))throw new Error();
+
+      if(confirm("Заменить текущие чеки данными из резервной копии?")){
+        receipts=data;
+        if(saveData()){
+          render();
+          alert("Резервная копия восстановлена!");
+        }
+      }
+    }catch(e){
+      alert("Файл резервной копии повреждён или неправильный.");
+    }
+  };
+
+  reader.readAsText(file);
+  e.target.value="";
+});
+
+search.addEventListener("input",render);
+
+render();
+</script>
+</body>
+</html>
